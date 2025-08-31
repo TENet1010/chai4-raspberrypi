@@ -1,17 +1,15 @@
 import json
 import time
 import paho.mqtt.client as mqtt
+import lgpio
 
 # MQTT config
 MQTT_BROKER = "172.20.10.5"  # IP ของ Raspberry Pi
 MQTT_PORT = 1883
 MQTT_TOPIC = "sensor/rotary_ultrasonic"
 
-# GPIO setup
-try:
-    import RPi.GPIO as GPIO
-except RuntimeError:
-    print("Error importing RPi.GPIO!")
+# GPIO setup with lgpio
+h = lgpio.gpiochip_open(0)
 
 # Rotary encoder pins
 CLK = 17
@@ -22,37 +20,38 @@ SW = 22
 TRIG = 26
 ECHO = 19
 
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(CLK, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup(DT, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup(SW, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup(TRIG, GPIO.OUT)
-GPIO.setup(ECHO, GPIO.IN)
+# Setup GPIO pins
+lgpio.gpio_claim_input(h, CLK, lgpio.SET_PULL_UP)
+lgpio.gpio_claim_input(h, DT, lgpio.SET_PULL_UP)
+lgpio.gpio_claim_input(h, SW, lgpio.SET_PULL_UP)
+lgpio.gpio_claim_output(h, TRIG)
+lgpio.gpio_claim_input(h, ECHO)
 
 # MQTT client
 client = mqtt.Client(client_id="rasp_pi_5")
 client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
 # Rotary variables
-last_clk = GPIO.input(CLK)
+last_clk = lgpio.gpio_read(h, CLK)
 rotary_counter = 0
 
 def read_ultrasonic():
-    GPIO.output(TRIG, False)
+    lgpio.gpio_write(h, TRIG, 0)
     time.sleep(0.05)
-    GPIO.output(TRIG, True)
+    lgpio.gpio_write(h, TRIG, 1)
     time.sleep(0.00001)
-    GPIO.output(TRIG, False)
-
+    lgpio.gpio_write(h, TRIG, 0)
+    
     pulse_start, pulse_end = time.time(), time.time()
-
+    
     # Wait for echo start
-    while GPIO.input(ECHO) == 0:
+    while lgpio.gpio_read(h, ECHO) == 0:
         pulse_start = time.time()
+    
     # Wait for echo end
-    while GPIO.input(ECHO) == 1:
+    while lgpio.gpio_read(h, ECHO) == 1:
         pulse_end = time.time()
-
+    
     pulse_duration = pulse_end - pulse_start
     distance = pulse_duration * 34300 / 2  # cm
     return round(distance, 2)
@@ -60,19 +59,19 @@ def read_ultrasonic():
 try:
     while True:
         # --- Rotary ---
-        clk_state = GPIO.input(CLK)
-        dt_state = GPIO.input(DT)
-
+        clk_state = lgpio.gpio_read(h, CLK)
+        dt_state = lgpio.gpio_read(h, DT)
+        
         if clk_state != last_clk:
             if dt_state != clk_state:
                 rotary_counter += 1
             else:
                 rotary_counter -= 1
         last_clk = clk_state
-
+        
         # --- Ultrasonic ---
         distance = read_ultrasonic()
-
+        
         # --- Publish MQTT ---
         payload = json.dumps({
             "rotary": rotary_counter,
@@ -80,8 +79,8 @@ try:
         })
         client.publish(MQTT_TOPIC, payload)
         print(f"Published: {payload}")
-
+        
         time.sleep(1)
 
 except KeyboardInterrupt:
-    GPIO.cleanup()
+    lgpio.gpiochip_close(h)
