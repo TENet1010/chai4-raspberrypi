@@ -1,4 +1,5 @@
 from gpiozero import Button, DistanceSensor
+from gpiozero.pins.pigpio import PiGPIOFactory
 from time import sleep
 import paho.mqtt.client as mqtt
 import json
@@ -11,13 +12,18 @@ MQTT_PORT = 1883
 MQTT_TOPIC = "sensor/rotary_ultrasonic"
 
 # ======================
+# Pigpio factory (ต้อง run pigpiod service)
+# ======================
+factory = PiGPIOFactory()
+
+# ======================
 # Sensors setup
 # ======================
 # Rotary switch (ปุ่มกดของ rotary encoder)
-rotary_sw = Button(22)
+rotary_sw = Button(22, pin_factory=factory)
 
 # Ultrasonic sensor
-sensor = DistanceSensor(echo=19, trigger=26)
+sensor = DistanceSensor(echo=19, trigger=26, pin_factory=factory)
 
 # ======================
 # MQTT client setup
